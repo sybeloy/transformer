@@ -72,9 +72,9 @@ class Dataloader:
         idx = torch.randint(0, len(data) - self.seq_len,
                             (self.batch_size,))
         x = torch.stack([data[i: i + self.seq_len]
-                         for i in idx])
+                         for i in idx]).type(torch.int)
         y = torch.stack([data[i + 1: i + self.seq_len + 1]
-                         for i in idx])
+                         for i in idx]).type(torch.int)
         return x, y
 
 

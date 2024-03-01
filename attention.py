@@ -47,10 +47,10 @@ class MHA(nn.Module):
         inputs = inputs.permute(0, 2, 1, 3)
         return inputs.reshape(*inputs.shape[:-2], -1)
 
-    def forward(self, inputs):
-        k = self.split_heads(self.key_proj(inputs))
-        q = self.split_heads(self.query_proj(inputs))
-        v = self.split_heads(self.value_proj(inputs))
+    def forward(self, q, k, v):
+        k = self.split_heads(self.key_proj(k))
+        q = self.split_heads(self.query_proj(q))
+        v = self.split_heads(self.value_proj(v))
 
         weighted = self.attention(k, q, v)
         weighted = self.join_heads(weighted)

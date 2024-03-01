@@ -8,6 +8,7 @@ from torch.nn import functional as F
 from transformers import get_linear_schedule_with_warmup
 
 from encoder import TransformerEncoder
+from decoder import TransformerDecoder
 from embeddings import TokenEmbedding
 from dataset import SymbolTokenizer, Tiktoken, Dataloader
 
@@ -23,7 +24,7 @@ else:
 print('Device:', device)
 
 
-class BigramLM(nn.Module):
+class Transformer(nn.Module):
     def __init__(self,
                  vocab_size: int,
                  emb_dim: int,
@@ -39,41 +40,42 @@ class BigramLM(nn.Module):
         self.batch_size = batch_size
         self.vocab_size = vocab_size
 
-        self.embedding = TokenEmbedding(
-            vocab_size=vocab_size,
-            emb_dim=emb_dim,
-            max_seq_len=seq_len,
-            device=device
-        )
-
         self.encoder = TransformerEncoder(
             emb_dim=emb_dim,
             n_layers=n_layers,
             n_heads=n_heads,
             dropout=dropout,
-            seq_len=seq_len
+            seq_len=seq_len,
+            device=device,
+            vocab_size=vocab_size
         )
-        self.out_proj = nn.Linear(emb_dim, vocab_size)
+        self.decoder = TransformerDecoder(
+            emb_dim=emb_dim,
+            n_layers=n_layers,
+            n_heads=n_heads,
+            dropout=dropout,
+            seq_len=seq_len,
+            vocab_size=vocab_size,
+            device=device
+        )
 
     def forward(self, tokens, targets=None):
         """
         tokens - input size (B, L)
         """
-        token_emb = self.embedding(tokens.int())
-
-        emb = self.encoder(token_emb)
-        emb = self.out_proj(emb)
+        enc_out = self.encoder(tokens)
+        output = self.decoder(targets, encoder_inputs=enc_out)
         loss = None
         if targets is not None:
-            b, l, d = emb.shape
-            emb = emb.view(b * l, d)
+            b, l, d = output.shape
+            emb = output.view(b * l, d)
             targets = targets.view(-1)
             loss = F.cross_entropy(emb, targets.long())
-        return emb, loss
+        return output, loss
 
     def generate(self, idx, max_tokens):
         for _ in range(max_tokens):
-            logits, _ = self(idx[:, -self.seq_len:])
+            logits, _ = self.forward(idx[:, -self.seq_len:])
             logits = logits[:, -1]
             probs = F.softmax(logits, -1)
             next_idx = torch.multinomial(probs, num_samples=1)
@@ -103,9 +105,9 @@ def train():
     with open('vocab.json', 'r') as f:
         vocab = json.load(f)
     scaler = torch.cuda.amp.GradScaler(enabled=torch.cuda.is_available())
-    epochs = 10000
+    epochs = 500
 
-    tkn = Tiktoken()
+    tkn = SymbolTokenizer(vocab)
     batch_size = 64
     seq_len = 256
     loader = Dataloader(
@@ -114,12 +116,12 @@ def train():
         tokenizer=tkn,
         text_corpus=text
     )
-    model = BigramLM(
+    model = Transformer(
         vocab_size=tkn.vocab_size,
-        emb_dim=80,
+        emb_dim=320,
         seq_len=seq_len,
         batch_size=batch_size,
-        n_layers=4,
+        n_layers=3,
         n_heads=8,
         device=device
     ).to(device)
@@ -178,7 +180,7 @@ def generate():
     tkn = Tokenizer(vocab)
     batch_size = 64
     seq_len = 256
-    model = BigramLM(
+    model = Transformer(
         vocab_size=len(vocab),
         emb_dim=480,
         seq_len=seq_len,

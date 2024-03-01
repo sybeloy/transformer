@@ -1,7 +1,9 @@
+import torch
 from torch import nn
 
 from attention import MHA
 from block_modules import FFN, AddNorm
+from embeddings import TokenEmbedding
 
 
 class EncoderLayer(nn.Module):
@@ -19,7 +21,7 @@ class EncoderLayer(nn.Module):
         self.second_add_norm = AddNorm(emb_dim, dropout)
 
     def forward(self, inputs):
-        weighted = self.mha(inputs)
+        weighted = self.mha(inputs, inputs, inputs)
         residual = self.first_add_norm(inputs, weighted)
         projected = self.ffn(residual)
         return self.second_add_norm(residual, projected)
@@ -32,9 +34,17 @@ class TransformerEncoder(nn.Module):
             n_layers: int,
             dropout: float,
             n_heads: int,
-            seq_len: int
+            seq_len: int,
+            vocab_size: int,
+            device: torch.device
     ):
         super().__init__()
+        self.embedding = TokenEmbedding(
+            vocab_size=vocab_size,
+            emb_dim=emb_dim,
+            max_seq_len=seq_len,
+            device=device
+        )
         self.layers = nn.Sequential(*[
             EncoderLayer(
                 emb_dim=emb_dim,
@@ -45,4 +55,5 @@ class TransformerEncoder(nn.Module):
         ])
 
     def forward(self, inputs):
+        inputs = self.embedding(inputs)
         return self.layers(inputs)
