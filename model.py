@@ -1,5 +1,4 @@
 import json
-import math
 import time
 
 from tqdm import tqdm
@@ -9,6 +8,7 @@ from torch.nn import functional as F
 from transformers import get_linear_schedule_with_warmup
 
 from encoder import TransformerEncoder
+from embeddings import TokenEmbedding
 from dataset import Tokenizer, Dataloader
 
 torch.manual_seed(42)
@@ -31,14 +31,20 @@ class BigramLM(nn.Module):
                  batch_size: int,
                  n_layers: int,
                  n_heads: int,
-                 dropout: float = 0.1
+                 device: torch.device,
+                 dropout: float = 0.1,
                  ):
         super().__init__()
         self.seq_len = seq_len
         self.batch_size = batch_size
         self.vocab_size = vocab_size
 
-        self.embedding = nn.Embedding(vocab_size, emb_dim)
+        self.embedding = TokenEmbedding(
+            vocab_size=vocab_size,
+            emb_dim=emb_dim,
+            max_seq_len=seq_len,
+            device=device
+        )
         self.pos_encoding = nn.Embedding(seq_len, emb_dim)
 
         self.encoder = TransformerEncoder(
@@ -49,13 +55,6 @@ class BigramLM(nn.Module):
             seq_len=seq_len
         )
         self.out_proj = nn.Linear(emb_dim, vocab_size)
-        self.init_weights()
-
-    def init_weights(self) -> None:
-        initrange = 0.1
-        self.embedding.weight.data.uniform_(-initrange, initrange)
-        self.out_proj.bias.data.zero_()
-        self.out_proj.weight.data.uniform_(-initrange, initrange)
 
     def forward(self, tokens, targets=None):
         """
@@ -122,11 +121,12 @@ def train():
     )
     model = BigramLM(
         vocab_size=len(vocab),
-        emb_dim=240 - 32,
+        emb_dim=208,
         seq_len=seq_len,
         batch_size=batch_size,
         n_layers=4,
-        n_heads=8
+        n_heads=8,
+        device=device
     ).to(device)
     # emb, loss = model(x, y)
 
@@ -136,12 +136,12 @@ def train():
         num_warmup_steps=0,
         num_training_steps=epochs
     )
-    loss_history = [None]
+    loss_history = [10]
     pbar = tqdm(range(epochs), total=epochs)
     min_loss = 100
     last_save = 0
     for steps in pbar:
-        pbar.set_description(f"Loss {loss_history[-1]}:.3f")
+        pbar.set_description(f"Loss {loss_history[-1]:.3f}")
 
         xb, yb = loader.get_batch('train')
         xb = xb.to(device)
