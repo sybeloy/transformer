@@ -8,6 +8,7 @@ import torch.nn as nn
 from torch.nn import functional as F
 from transformers import get_linear_schedule_with_warmup
 
+from encoder import TransformerEncoder
 from dataset import Tokenizer, Dataloader
 
 torch.manual_seed(42)
@@ -20,90 +21,6 @@ else:
     device = 'cpu'
 
 print('Device:', device)
-
-
-class FFN(nn.Module):
-    def __init__(self, emb_dim):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(emb_dim, emb_dim),
-            nn.ReLU()
-        )
-
-    def forward(self, x):
-        return self.net(x)
-
-
-class AddNorm(nn.Module):
-    def __init__(self, emb_dim, dropout):
-        super().__init__()
-        self.norm = nn.LayerNorm(emb_dim)
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self, x, y):
-        y = self.dropout(y)
-        return self.norm(x + y)
-
-
-class MHA(nn.Module):
-    def __init__(self, emb_dim, n_heads, seq_len):
-        super().__init__()
-        assert not emb_dim % n_heads
-        self.emb_dim = emb_dim
-        self.n_heads = n_heads
-        self.head_dim = emb_dim // n_heads
-
-        self.key_proj = nn.Linear(emb_dim, emb_dim, bias=True)
-        self.query_proj = nn.Linear(emb_dim, emb_dim, bias=True)
-        self.value_proj = nn.Linear(emb_dim, emb_dim, bias=True)
-
-        self.out_proj = nn.Linear(emb_dim, emb_dim, bias=True)
-
-        self.register_buffer('tril',
-                             torch.tril(torch.ones(seq_len, seq_len)))
-
-    def attention(self, k, q, v):
-        attn = q.matmul(k.transpose(-1, -2)) / math.sqrt(k.shape[-1])
-        seq_len = k.shape[-2]
-        attn = attn.masked_fill(self.tril[:seq_len, :seq_len] == 0,
-                                float('-inf'))
-        attn = F.softmax(attn, -1)
-        return attn.matmul(v)
-
-    def split_heads(self, inputs):
-        # inputs (B, L, D) -> (B, L, H, HD) -> (B, H, L, HD)
-        inputs = inputs.reshape(*inputs.shape[:-1], self.n_heads, self.head_dim)
-        return inputs.permute(0, 2, 1, 3)
-
-    def join_heads(self, inputs):
-        # inputs (B, H, L, HD) -> (B, L, H, HD) ->  (B, L, D)
-        inputs = inputs.permute(0, 2, 1, 3)
-        return inputs.reshape(*inputs.shape[:-2], -1)
-
-    def forward(self, inputs):
-        k = self.split_heads(self.key_proj(inputs))
-        q = self.split_heads(self.query_proj(inputs))
-        v = self.split_heads(self.value_proj(inputs))
-
-        weighted = self.attention(k, q, v)
-        weighted = self.join_heads(weighted)
-
-        return self.out_proj(weighted)
-
-
-class EncoderLayer(nn.Module):
-    def __init__(self, emb_dim, dropout, n_heads, seq_len):
-        super().__init__()
-        self.mha = MHA(emb_dim, n_heads, seq_len)
-        self.ffn = FFN(emb_dim)
-        self.first_add_norm = AddNorm(emb_dim, dropout)
-        self.second_add_norm = AddNorm(emb_dim, dropout)
-
-    def forward(self, inputs):
-        weighted = self.mha(inputs)
-        residual = self.first_add_norm(inputs, weighted)
-        projected = self.ffn(residual)
-        return self.second_add_norm(residual, projected)
 
 
 class BigramLM(nn.Module):
@@ -124,8 +41,13 @@ class BigramLM(nn.Module):
         self.embedding = nn.Embedding(vocab_size, emb_dim)
         self.pos_encoding = nn.Embedding(seq_len, emb_dim)
 
-        self.net = nn.Sequential(*[EncoderLayer(emb_dim, dropout, n_heads, seq_len)
-                                   for _ in range(n_layers)])
+        self.encoder = TransformerEncoder(
+            emb_dim=emb_dim,
+            n_layers=n_layers,
+            n_heads=n_heads,
+            dropout=dropout,
+            seq_len=seq_len
+        )
         self.out_proj = nn.Linear(emb_dim, vocab_size)
         self.init_weights()
 
@@ -144,7 +66,7 @@ class BigramLM(nn.Module):
         pos_emb = self.pos_encoding(torch.arange(seq_len).to(device))
         token_emb = token_emb + pos_emb
 
-        emb = self.net(token_emb)
+        emb = self.encoder(token_emb)
         emb = self.out_proj(emb)
         loss = None
         if targets is not None:
@@ -282,4 +204,4 @@ def generate():
 
 
 if __name__ == '__main__':
-    generate()
+    train()
