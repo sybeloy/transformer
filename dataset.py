@@ -1,5 +1,6 @@
 import json
 import torch
+import tiktoken
 
 
 def form_vocab(text: str) -> list:
@@ -18,13 +19,15 @@ def save_vocab(data_paths: list):
     return text, vocab
 
 
-class Tokenizer:
+class SymbolTokenizer:
     def __init__(self, vocab: list):
         self.vocab = vocab
         self.token_to_id = {token: i
                             for i, token in enumerate(vocab)}
         self.id_to_token = {i: token
                             for i, token in enumerate(vocab)}
+        self.vocab_size = len(vocab)
+
 
     def encode(self, text: str) -> torch.Tensor:
         return torch.tensor([self.token_to_id[token]
@@ -34,12 +37,24 @@ class Tokenizer:
         return ''.join(self.id_to_token[id.item()] for id in token_ids)
 
 
+class Tiktoken:
+    def __init__(self, *args):
+        self.tkn = tiktoken.encoding_for_model("gpt-4")
+        self.vocab_size = self.tkn.max_token_value
+
+    def encode(self, text: str) -> torch.Tensor:
+        return torch.tensor(self.tkn.encode(text), dtype=torch.float)
+
+    def decode(self, token_ids: torch.Tensor) -> str:
+        return self.tkn.decode(token_ids)
+
+
 class Dataloader:
     def __init__(
             self,
             batch_size: int,
             seq_len: int,
-            tokenizer: Tokenizer,
+            tokenizer: Tiktoken,
             text_corpus: str,
             train_size: float = 0.9
     ):

@@ -9,7 +9,7 @@ from transformers import get_linear_schedule_with_warmup
 
 from encoder import TransformerEncoder
 from embeddings import TokenEmbedding
-from dataset import Tokenizer, Dataloader
+from dataset import SymbolTokenizer, Tiktoken, Dataloader
 
 torch.manual_seed(42)
 
@@ -45,6 +45,7 @@ class BigramLM(nn.Module):
             max_seq_len=seq_len,
             device=device
         )
+
         self.encoder = TransformerEncoder(
             emb_dim=emb_dim,
             n_layers=n_layers,
@@ -104,7 +105,7 @@ def train():
     scaler = torch.cuda.amp.GradScaler(enabled=torch.cuda.is_available())
     epochs = 10000
 
-    tkn = Tokenizer(vocab)
+    tkn = Tiktoken()
     batch_size = 64
     seq_len = 256
     loader = Dataloader(
@@ -114,8 +115,8 @@ def train():
         text_corpus=text
     )
     model = BigramLM(
-        vocab_size=len(vocab),
-        emb_dim=208,
+        vocab_size=tkn.vocab_size,
+        emb_dim=80,
         seq_len=seq_len,
         batch_size=batch_size,
         n_layers=4,
