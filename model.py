@@ -85,8 +85,7 @@ class BigramLM(nn.Module):
         return idx
 
     def infinite_generator(self, prompt, tokenizer, memory_offset=None):
-        if not memory_offset:
-            memory_offset = self.seq_len
+        memory_offset = min(self.seq_len, memory_offset) if memory_offset else self.seq_len
         prompt = prompt.unsqueeze(0).to(device)
         while True:
             prompt = prompt[:, -memory_offset:]
