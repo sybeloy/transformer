@@ -45,8 +45,6 @@ class BigramLM(nn.Module):
             max_seq_len=seq_len,
             device=device
         )
-        self.pos_encoding = nn.Embedding(seq_len, emb_dim)
-
         self.encoder = TransformerEncoder(
             emb_dim=emb_dim,
             n_layers=n_layers,
@@ -60,10 +58,7 @@ class BigramLM(nn.Module):
         """
         tokens - input size (B, L)
         """
-        _, seq_len = tokens.shape
-        token_emb = self.embedding(tokens.long())
-        pos_emb = self.pos_encoding(torch.arange(seq_len).to(device))
-        token_emb = token_emb + pos_emb
+        token_emb = self.embedding(tokens.int())
 
         emb = self.encoder(token_emb)
         emb = self.out_proj(emb)
